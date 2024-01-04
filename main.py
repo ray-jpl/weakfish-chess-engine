@@ -85,7 +85,6 @@ def eval_board(board):
         if piece != None:
             piece_colour = 1 if piece.color == chess.WHITE else -1
             
-            ## TODO: include piece table in eval function 
             eval_total += piece_colour * (piece_value[piece.piece_type] + eval_piece_table_value(piece, square))
     return eval_total
 
@@ -98,6 +97,36 @@ def eval_piece_table_value(piece, square):
     else:
         return piece_table_black[piece.piece_type][square]
 
+def search_all_captures(board, is_white):
+    """
+    Evaluate board with possible captures
+
+    Continues to search until all possible captures are searched
+    """
+    
+    # Current piece value and position evaluation
+    cur_evaluation = eval_board(board)
+
+    # Check all current capturing moves
+    # No depth checked as we need to account for all captures/trades
+    legal_moves = list(board.legal_moves)
+    if is_white:
+        for move in legal_moves:
+            if (board.is_capture(move)):
+                board.push(move)
+                eval = search_all_captures(board, False)
+                cur_evaluation = max(cur_evaluation, eval)
+                board.pop()
+    else:
+        for move in legal_moves:
+            if (board.is_capture(move)):
+                board.push(move)
+                eval = search_all_captures(board, False)
+                cur_evaluation = min(cur_evaluation, eval)
+                board.pop()
+    
+    return cur_evaluation
+
 
 def search(board, depth, is_white):
     """
@@ -107,7 +136,7 @@ def search(board, depth, is_white):
     Therefore white is trying to get maximum score and black is minimising the score. 
     """
     if (depth == 0):
-        return eval_board(board)
+        return search_all_captures(board, is_white)
     
     ## Check if player is in checkmate
     legal_moves = list(board.legal_moves)
