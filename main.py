@@ -97,7 +97,7 @@ def eval_piece_table_value(piece, square):
     else:
         return piece_table_black[piece.piece_type][square]
 
-def search_all_captures(board, is_white):
+def search_all_captures(board, alpha, beta, is_white):
     """
     Evaluate board with possible captures
 
@@ -105,7 +105,10 @@ def search_all_captures(board, is_white):
     """
     
     # Current piece value and position evaluation
-    cur_evaluation = eval_board(board)
+    cur_eval = eval_board(board)
+    if (cur_eval >= beta):
+        return beta
+    alpha = max(alpha, cur_eval)
 
     # Check all current capturing moves
     # No depth checked as we need to account for all captures/trades
@@ -114,29 +117,40 @@ def search_all_captures(board, is_white):
         for move in legal_moves:
             if (board.is_capture(move)):
                 board.push(move)
-                eval = search_all_captures(board, False)
-                cur_evaluation = max(cur_evaluation, eval)
+                eval = search_all_captures(board, alpha, beta, False)
+                cur_eval = max(cur_eval, eval)
+                alpha = max(alpha, cur_eval)
                 board.pop()
+                if (beta <= alpha):
+                    break
     else:
         for move in legal_moves:
             if (board.is_capture(move)):
                 board.push(move)
-                eval = search_all_captures(board, False)
-                cur_evaluation = min(cur_evaluation, eval)
+                eval = search_all_captures(board, alpha, beta, False)
+                cur_eval = min(cur_eval, eval)
+                beta = min(beta, eval)
                 board.pop()
+                if (beta <= alpha):
+                    break
     
-    return cur_evaluation
+    return cur_eval
 
 
-def search(board, depth, is_white):
+def search(board, depth, alpha, beta, is_white):
     """
     Searches tree of possible moves and returns the best evaluation score
 
     Evaluation gives a positive score if white advantage or negative score for black advantage
-    Therefore white is trying to get maximum score and black is minimising the score. 
+    Therefore white is trying to get maximum score and black is minimising the score.
+
+    Uses alpha-beta pruning to reduce search tree
+    - Alpha represents best score for WHITE at that node
+    - Beta represents best score for BLACK at that node
+
     """
     if (depth == 0):
-        return search_all_captures(board, is_white)
+        return search_all_captures(board, alpha, beta, is_white)
     
     ## Check if player is in checkmate
     legal_moves = list(board.legal_moves)
@@ -150,17 +164,23 @@ def search(board, depth, is_white):
         max_eval = neg_infinity
         for move in legal_moves:
             board.push(move)
-            eval = search(board, depth - 1, False)
+            eval = search(board, depth - 1, alpha, beta, False)
             max_eval = max(max_eval, eval)
+            alpha = max(alpha, eval)
             board.pop()
+            if (beta <= alpha):
+                break
         return max_eval
     else:
         min_eval = pos_infinity
         for move in legal_moves:
             board.push(move)
-            eval = search(board, depth - 1, True)
+            eval = search(board, depth - 1, alpha, beta, True)
             min_eval = min(min_eval, eval)
+            beta = min(beta, eval)
             board.pop()
+            if (beta <= alpha):
+                break
         return min_eval
 
 def get_best_move(board, depth):
@@ -177,7 +197,7 @@ def get_best_move(board, depth):
 
     for move in legal_moves:
         board.push(move)
-        value = search(board, depth - 1, is_white)
+        value = search(board, depth - 1, neg_infinity, pos_infinity, is_white)
         board.pop()
         if is_white and (value > best_eval):
             best_eval = value
@@ -226,12 +246,11 @@ def uciCommandLoop():
                 
         elif args[0] == "go":
             # Evaluate Position
-            move = get_best_move(board, 3)
+            move = get_best_move(board, 2)
             board.push(move)
             print(f"bestmove {move}")
 
-            # print(board)
-            # print("\n")
+            # print(board, "\n")
 
 ##################### 
 ## Start Game Loop ##
