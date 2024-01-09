@@ -1,3 +1,4 @@
+import time
 import chess
 
 pos_infinity = float('inf')
@@ -73,6 +74,8 @@ piece_table_black = {
     chess.KING:   list(reversed(piece_table_white[chess.KING])),   
 }
 
+debug = {}
+
 def eval_board(board):
     """
     Evaluate board by going over each square and summing piece value
@@ -97,9 +100,50 @@ def eval_piece_table_value(piece, square):
     else:
         return piece_table_black[piece.piece_type][square]
 
-def search_all_captures(board, alpha, beta, is_white):
+def eval_move(board, move):
     """
-    Evaluate board with possible captures
+    Returns the bonus evaluation score of a move
+
+    Eval is calculated by emphasising specific behaviours outlined in the comments 
+    """
+    psuedo_eval = 0
+    moving_piece = board.piece_at(move.from_square)
+
+    # More weight given to captures where a lesser value piece takes a larger value piece
+    if (board.is_capture(move)):
+        captured_piece = board.piece_at(move.to_square)
+        if (captured_piece is not None):
+            psuedo_eval += 10 * piece_value[captured_piece.piece_type] - piece_value[moving_piece.piece_type]
+    
+    # More weight given to pawn promotion
+    if (move.promotion != None):
+        psuedo_eval += piece_value[chess.QUEEN]
+    
+    # Avoid moving pieces into a place where they can get attacked
+    if (board.is_attacked_by(not board.turn, move.to_square)):
+        psuedo_eval -= piece_value[moving_piece.piece_type]
+    
+    return psuedo_eval if board.turn == chess.WHITE else -psuedo_eval
+
+def sorted_moves(board):
+    """
+    Evaluate legal moves to identify 'good' moves.
+    Returns evaluation number
+
+    Evaluation will be able to consider better moves earlier to get more efficient pruning
+    """
+    
+    legal_moves = list(board.legal_moves)
+
+    def move_sorter(move):
+        return eval_move(board, move)     
+    
+    ordered_moves = sorted(legal_moves, key=move_sorter, reverse=(board.turn == chess.WHITE))
+    return ordered_moves
+
+def search_all_captures(board, alpha, beta):
+    """
+    Evaluate board with potential captures in current state (Quiescence Search)
 
     Continues to search until all possible captures are searched
     """
@@ -112,32 +156,22 @@ def search_all_captures(board, alpha, beta, is_white):
 
     # Check all current capturing moves
     # No depth checked as we need to account for all captures/trades
-    legal_moves = list(board.legal_moves)
-    if is_white:
-        for move in legal_moves:
-            if (board.is_capture(move)):
-                board.push(move)
-                eval = search_all_captures(board, alpha, beta, False)
-                cur_eval = max(cur_eval, eval)
-                alpha = max(alpha, cur_eval)
-                board.pop()
-                if (beta <= alpha):
-                    break
-    else:
-        for move in legal_moves:
-            if (board.is_capture(move)):
-                board.push(move)
-                eval = search_all_captures(board, alpha, beta, False)
-                cur_eval = min(cur_eval, eval)
-                beta = min(beta, eval)
-                board.pop()
-                if (beta <= alpha):
-                    break
-    
-    return cur_eval
+    legal_moves = sorted_moves(board)
+
+    for move in legal_moves:
+        if board.is_capture(move):
+            board.push(move)
+            eval = -search_all_captures(board, -beta, -alpha)
+            board.pop()
+            if (eval >= beta):
+                return beta
+            if (eval > alpha):
+                alpha = eval
+
+    return alpha
 
 
-def search(board, depth, alpha, beta, is_white):
+def search(board, depth, alpha, beta):
     """
     Searches tree of possible moves and returns the best evaluation score
 
@@ -149,39 +183,30 @@ def search(board, depth, alpha, beta, is_white):
     - Beta represents best score for BLACK at that node
 
     """
+    debug["nodes"] += 1
+
     if (depth == 0):
-        return search_all_captures(board, alpha, beta, is_white)
+        return search_all_captures(board, alpha, beta)
     
     ## Check if player is in checkmate
-    legal_moves = list(board.legal_moves)
+    legal_moves = sorted_moves(board)
     if (len(legal_moves) == 0):
         if (board.is_checkmate()):
-            return neg_infinity if is_white else pos_infinity
+            return neg_infinity if board.turn == chess.WHITE else pos_infinity
         ## No legal moves and no checkmate means a draw
         return 0.0
     
-    if is_white:
-        max_eval = neg_infinity
-        for move in legal_moves:
-            board.push(move)
-            eval = search(board, depth - 1, alpha, beta, False)
-            max_eval = max(max_eval, eval)
-            alpha = max(alpha, eval)
-            board.pop()
-            if (beta <= alpha):
-                break
-        return max_eval
-    else:
-        min_eval = pos_infinity
-        for move in legal_moves:
-            board.push(move)
-            eval = search(board, depth - 1, alpha, beta, True)
-            min_eval = min(min_eval, eval)
-            beta = min(beta, eval)
-            board.pop()
-            if (beta <= alpha):
-                break
-        return min_eval
+    for move in legal_moves:
+        board.push(move)
+        eval = -search(board, depth - 1, -beta, -alpha)
+        board.pop()
+        if (eval >= beta):
+            ## Move was too good
+            return beta
+        if (eval > alpha):
+            alpha = eval
+    return alpha
+
 
 def get_best_move(board, depth):
     """
@@ -189,6 +214,11 @@ def get_best_move(board, depth):
     
     Returns best move
     """
+    debug.clear()
+    debug["nodes"] = 0
+    debug["eval"] = 0
+    t0 = time.time()
+
     is_white = (board.turn == chess.WHITE)
     best_eval = neg_infinity if is_white else pos_infinity
 
@@ -197,7 +227,7 @@ def get_best_move(board, depth):
 
     for move in legal_moves:
         board.push(move)
-        value = search(board, depth - 1, neg_infinity, pos_infinity, is_white)
+        value = -search(board, depth - 1, neg_infinity, pos_infinity)
         board.pop()
         if is_white and (value > best_eval):
             best_eval = value
@@ -205,8 +235,11 @@ def get_best_move(board, depth):
         elif not is_white and (value < best_eval):
             best_eval = value
             best_move = move
-    # print("WHITE" if is_white else "BLACK")
-    # print(f"evaluation: {best_eval}")
+    
+    debug["time"] = time.time() - t0
+    debug["eval"] = best_eval
+    debug["turn"] = "WHITE" if is_white else "BLACK"
+    print(f"> INFO: {debug}")
     return best_move
 
 def uciCommandLoop():
